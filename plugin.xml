@@ -1,0 +1,7 @@
+<library path="lib/libccom_planner">
+  <class name="ccom_planner/Planner" type="ccom_planner::Planner" base_class_type="project11_navigation::TaskToTaskWorkflow">
+    <description>
+      A* planner using turn radius for Dubins vehicles.
+    </description>
+  </class>
+</library>
