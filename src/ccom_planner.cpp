@@ -18,7 +18,7 @@ void Planner::configure(std::string name, project11_navigation::Context::Ptr con
   nh.param("output_task_type", output_task_type_, output_task_type_);
   nh.param("output_task_name", output_task_name_, output_task_name_);
 
-  plan_publisher_ = nh.advertise<nav_msgs::Path>("plan", 1);
+  plan_publisher_ = nh.advertise<nav_msgs::Path>("plan", 1, true);
 }
 
 void Planner::setGoal(const std::shared_ptr<project11_navigation::Task>& input)
@@ -53,6 +53,8 @@ bool Planner::running()
       if(potential_plan)
       {
         std::vector<geometry_msgs::PoseStamped> potential_poses;
+        double last_speed = 0.0;
+        ros::Duration cumulative_time(0.0);
         for(auto s: unwrap(potential_plan))
         {
           geometry_msgs::PoseStamped p;
@@ -60,9 +62,18 @@ bool Planner::running()
           p.pose.position.x = s.x;
           p.pose.position.y = s.y;
           tf2::Quaternion q;
-          q.setRPY(0.0, 0.0, s.yaw);
+          q.setRPY(0.0, 0.0, s.yaw.value());
           tf2::convert(q, p.pose.orientation);
-          // TODO, handle speed and time
+
+          if(!potential_poses.empty())
+          {
+            auto avg_speed = std::max(0.1,(last_speed + s.speed)/2.0);
+            auto dx = s.x - potential_poses.back().pose.position.x;
+            auto dy = s.y - potential_poses.back().pose.position.y;
+            cumulative_time += ros::Duration(sqrt(dx*dx+dy*dy)/avg_speed);
+            p.header.stamp = start_header_.stamp + cumulative_time;
+            last_speed = s.speed;
+          }
           potential_poses.push_back(p);
         }
 
@@ -150,14 +161,10 @@ bool Planner::running()
       start_state.x = start.pose.position.x;
       start_state.y = start.pose.position.y;
       start_state.yaw = tf2::getYaw(start.pose.orientation);
-      if(start_state.yaw < 0.0)
-        start_state.yaw += 2.0*M_PI;
 
       goal_state.x = goal.pose.position.x;
       goal_state.y = goal.pose.position.y;
       goal_state.yaw = tf2::getYaw(goal.pose.orientation);
-      if(goal_state.yaw < 0.0)
-        goal_state.yaw += 2.0*M_PI;
 
       ROS_INFO_STREAM("Launching planner from " << start_state << " to " << goal_state);
 

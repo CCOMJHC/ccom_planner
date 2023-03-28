@@ -6,14 +6,15 @@
 #include <map>
 #include <future>
 #include <project11_navigation/context.h>
+#include "project11/utils.h"
 
 extern "C" {
 #include "dubins_curves/dubins.h"
 };
 
-
 // loosly based on 
 // https://en.wikipedia.org/wiki/A*_search_algorithm
+
 
 namespace ccom_planner
 {
@@ -22,7 +23,8 @@ struct State
 {
   double x;
   double y;
-  double yaw;
+  project11::AngleRadiansPositive yaw;
+  double speed;
 };
 
 struct Node
@@ -136,8 +138,9 @@ private:
   double max_yaw_step_; // How much yaw changes per step_size then turning at dubins radius
   std::vector<double> yaw_search_steps_; // Valid relative directions for searching
 
+  double speed_; // Speed at cost 0;
+
   std::shared_ptr<costmap_2d::Costmap2DROS> costmap_;
-  double robot_radius_ = 0.0; // radius within which the robot footprint fits
 
   // A* nodes that can still be expanded
   std::priority_queue<Node::Ptr, std::vector<Node::Ptr>, NodePointerCompare> open_set_;

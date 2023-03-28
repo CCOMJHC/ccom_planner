@@ -7,15 +7,6 @@ DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context:
 {
   costmap_ = context->costmap();
 
-  for(auto p: costmap_->getRobotFootprint())
-  {
-    auto distance2 = p.x*p.x + p.y*p.y;
-    robot_radius_ = std::max(robot_radius_, distance2);
-  }
-  // delay the sqrt for efficency
-  if(robot_radius_ > 0)
-    robot_radius_ = sqrt(robot_radius_);
-
   step_size_ = costmap_->getCostmap()->getResolution();
 
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
@@ -34,6 +25,7 @@ DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context:
     yaw_search_steps_.push_back(-yaw);
   }
 
+  speed_ = context->getRobotCapabilities().default_velocity.linear.x;
 
   goal_ = goal;
   goal_index_ = indexOf(goal);
@@ -112,8 +104,13 @@ Node::Ptr DubinsAStar::plan()
         double cost = getCost(n->state);
         if(cost >= 0.0)
         {
-          n->g += cost;
-          open_set_.push(n);
+          auto speed = speed_*(1.0-cost);
+          if(speed > 0)
+          {
+            n->state.speed = speed;
+            n->g += step_size_/speed;
+            open_set_.push(n);
+          }
         }
         visited_nodes_[ni] = true;
       }
@@ -128,10 +125,10 @@ NodeIndex DubinsAStar::indexOf(const State& state) const
   NodeIndex ret;
   ret.xi = state.x/step_size_;
   ret.yi = state.y/step_size_;
-  if(isnan(state.yaw) || state.yaw < 0.0)
+  if(gz4d::isnan(state.yaw))
     ret.yawi = -1;
   else
-    ret.yawi = state.yaw/yaw_step_;
+    ret.yawi = state.yaw.value()/yaw_step_;
   return ret;
 }
 
@@ -140,15 +137,15 @@ bool DubinsAStar::dubins(const State & from, const State & to, DubinsPath & path
   double start[3];
   start[0] = from.x;
   start[1] = from.y;
-  start[2] = from.yaw;
+  start[2] = from.yaw.value();
   
   double target[3];
   target[0] = to.x;
   target[1] = to.y;
   if(isnan(to.yaw))
-    target[2] = from.yaw;
+    target[2] = from.yaw.value();
   else
-    target[2] = to.yaw;
+    target[2] = to.yaw.value();
 
   int dubins_ret = dubins_shortest_path(&path, start, target, turn_radius_);
   
@@ -182,52 +179,43 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
       state.x = q[0];
       state.y = q[1];
       state.yaw = q[2];
-      if(state.yaw < 0.0)
-        state.yaw += 2.0*M_PI;
-      ret.push_back(std::make_shared<Node>(state, heuristic(state, goal_), from->g+step_size_, from));
+      auto h = heuristic(state, goal_);
+      if(h < 0)
+        ROS_WARN_STREAM("Unable to calculate heuristic for direct Dubins neighbour from " << state << " to " << goal_);
+      else
+        ret.push_back(std::make_shared<Node>(state, h, from->g, from));
     }
   }  
 
-  // Now consider out standard directions
+  // Now consider our standard directions
   for(auto delta_yaw: yaw_search_steps_)
   {
-    auto yaw = from->state.yaw + delta_yaw;
-    auto cosyaw = cos(yaw);
-    auto sinyaw = sin(yaw);
     State state;
+    state.yaw = from->state.yaw + delta_yaw;
+    auto cosyaw = cos(state.yaw);
+    auto sinyaw = sin(state.yaw);
     state.x = from->state.x + step_size_*cosyaw;
     state.y = from->state.y + step_size_*sinyaw;
-    if (yaw > 2.0*M_PI)
-      yaw -= (2.0*M_PI);
-    if (yaw < 0.0)
-      yaw += (2.0*M_PI);
-    state.yaw = yaw;
-    ret.push_back(std::make_shared<Node>(state, heuristic(state, goal_), from->g+step_size_, from));
+    auto h = heuristic(state, goal_);
+    if(h < 0)
+      ROS_WARN_STREAM("Unable to calculate heuristic for standard neighbour from " << state << " to " << goal_);
+    else
+      ret.push_back(std::make_shared<Node>(state, h, from->g, from));
   }
   return ret;
 }
 
 double DubinsAStar::getCost(const State& state)
 {
-  unsigned char cost = 0; 
-  double radius_squared = robot_radius_*robot_radius_;
-  for(double dx = -robot_radius_; dx <= robot_radius_; dx += step_size_)
-    for(double dy = -robot_radius_; dy <= robot_radius_; dy += step_size_)
-      if(dx*dx+dy*dy <= radius_squared)
-      {
-        unsigned int x,y;
-        if(costmap_->getCostmap()->worldToMap(state.x+dx, state.y+dy, x, y))
-          cost = std::max(cost, costmap_->getCostmap()->getCost(x,y));
-        else
-          cost = 255;
-        if(cost > 250)
-          break;
-      }
-  if (cost>250)
-    return -1.0;
-  return cost/128.0;
+  unsigned int x,y;
+  if(costmap_->getCostmap()->worldToMap(state.x, state.y, x, y))
+  {
+    auto cost = costmap_->getCostmap()->getCost(x,y);
+    if (cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
+      return cost/double(costmap_2d::INSCRIBED_INFLATED_OBSTACLE-1);
+  }
+  return -1.0;
 }
-
 std::vector<State> unwrap(Node::Ptr plan)
 {
   std::vector<State> ret;
@@ -246,7 +234,7 @@ std::vector<State> unwrap(Node::Ptr plan)
 
 std::ostream& operator<< (std::ostream& os, const ccom_planner::State& state)
 {
-  os << "x,y: " << state.x << "," << state.y << "\tyaw: " << state.yaw;
+  os << "x,y: " << state.x << "," << state.y << "\tyaw: " << project11::AngleDegreesPositive(state.yaw).value();
   return os;
 }
 
