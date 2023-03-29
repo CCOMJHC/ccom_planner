@@ -15,6 +15,8 @@ extern "C" {
 // loosly based on 
 // https://en.wikipedia.org/wiki/A*_search_algorithm
 
+// TODO look at D* lite as alternative
+// http://idm-lab.org/bib/abstracts/papers/aaai02b.pdf
 
 namespace ccom_planner
 {
@@ -29,12 +31,13 @@ struct State
 
 struct Node
 {
-  Node(const State& s, double heuristic, double cost_so_far = 0.0, std::shared_ptr<Node> from = std::shared_ptr<Node>()): state(s), h(heuristic), g(cost_so_far), previous_node(from)
+  Node(const State& s, double heuristic, double distance_so_far = 0.0, double cost_so_far = 0.0, std::shared_ptr<Node> from = std::shared_ptr<Node>()): state(s), cummulative_distance(distance_so_far), h(heuristic), g(cost_so_far), previous_node(from)
   {
 
   }
 
   State state;
+  double cummulative_distance; // distance of path from start
   double g; // cost of path from start
   double h; // heuristic estimate of cost to goal
 
@@ -140,7 +143,7 @@ private:
 
   double speed_; // Speed at cost 0;
 
-  std::shared_ptr<costmap_2d::Costmap2DROS> costmap_;
+  costmap_2d::Costmap2D costmap_;
 
   // A* nodes that can still be expanded
   std::priority_queue<Node::Ptr, std::vector<Node::Ptr>, NodePointerCompare> open_set_;

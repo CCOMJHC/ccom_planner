@@ -5,9 +5,9 @@ namespace ccom_planner
 
 DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
 {
-  costmap_ = context->costmap();
+  costmap_ = *context->costmap()->getCostmap();
 
-  step_size_ = costmap_->getCostmap()->getResolution();
+  step_size_ = costmap_.getResolution();
 
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
   max_yaw_step_ = step_size_/turn_radius_;
@@ -108,7 +108,7 @@ Node::Ptr DubinsAStar::plan()
           if(speed > 0)
           {
             n->state.speed = speed;
-            n->g += step_size_/speed;
+            n->g += (n->cummulative_distance-current->cummulative_distance)/speed;
             open_set_.push(n);
           }
         }
@@ -183,7 +183,7 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
       if(h < 0)
         ROS_WARN_STREAM("Unable to calculate heuristic for direct Dubins neighbour from " << state << " to " << goal_);
       else
-        ret.push_back(std::make_shared<Node>(state, h, from->g, from));
+        ret.push_back(std::make_shared<Node>(state, h, from->cummulative_distance+step_size_, from->g, from));
     }
   }  
 
@@ -200,7 +200,7 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
     if(h < 0)
       ROS_WARN_STREAM("Unable to calculate heuristic for standard neighbour from " << state << " to " << goal_);
     else
-      ret.push_back(std::make_shared<Node>(state, h, from->g, from));
+      ret.push_back(std::make_shared<Node>(state, h, from->cummulative_distance+step_size_, from->g, from));
   }
   return ret;
 }
@@ -208,14 +208,15 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 double DubinsAStar::getCost(const State& state)
 {
   unsigned int x,y;
-  if(costmap_->getCostmap()->worldToMap(state.x, state.y, x, y))
+  if(costmap_.worldToMap(state.x, state.y, x, y))
   {
-    auto cost = costmap_->getCostmap()->getCost(x,y);
+    auto cost = costmap_.getCost(x,y);
     if (cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
       return cost/double(costmap_2d::INSCRIBED_INFLATED_OBSTACLE-1);
   }
   return -1.0;
 }
+
 std::vector<State> unwrap(Node::Ptr plan)
 {
   std::vector<State> ret;
