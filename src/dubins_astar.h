@@ -21,19 +21,22 @@ extern "C" {
 namespace ccom_planner
 {
 
+// A position, heading and speed in map space
 struct State
 {
   double x;
   double y;
+  // Yaw than knows how to stay in the 0-2pi range when doing arithmetic
   project11::AngleRadiansPositive yaw;
   double speed;
 };
 
+// Combines a state with a pointer to the precious node
+// and cost components (g, h)
 struct Node
 {
   Node(const State& s, double heuristic, double distance_so_far = 0.0, double cost_so_far = 0.0, std::shared_ptr<Node> from = std::shared_ptr<Node>()): state(s), cummulative_distance(distance_so_far), h(heuristic), g(cost_so_far), previous_node(from)
   {
-
   }
 
   State state;
@@ -62,6 +65,7 @@ struct Node
   using Ptr = std::shared_ptr<Node>;
 };
 
+// Used with priority queue to compare Node's f values
 struct NodePointerCompare
 {
   bool operator()(const Node::Ptr& lhs, const Node::Ptr& rhs) const
@@ -77,17 +81,14 @@ struct NodeIndex
   int xi;
   int yi;
 
-  // if yaw doesn't matter, set it to -1
-  // otherwise, how many yaw steps from 0
-  int yawi = -1;
+  // how many yaw steps from 0
+  int yawi;
 
+  // used for ordering the NodeIndexs to use in a map
   bool operator<(const NodeIndex& other) const
   {
     if(xi == other.xi)
       if(yi == other.yi)
-        if(yawi == -1 || other.yawi == -1)
-          return false;
-        else
           return yawi < other.yawi;
       else
         return yi < other.yi;
@@ -110,7 +111,8 @@ struct NodeIndex
   }
 };
 
-std::vector<State> unwrap(Node::Ptr plan);
+// Converts a chain of Nodes into PoseStampeds
+void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, const std_msgs::Header& start_header);
 
 class DubinsAStar
 {
@@ -118,7 +120,12 @@ public:
   DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step = M_PI/8.0);
   ~DubinsAStar();
 
-  Node::Ptr getPlan();
+  // If planner is done, return true
+  // If done and a plan was found, the plan is added to the plan argument.
+  // If a plan was not found the plan argument is not updated.
+  // If the planner is not done, return false and populate the plan argument
+  // with the best candidate so far.
+  bool getPlan(std::vector<geometry_msgs::PoseStamped> &plan, const std_msgs::Header& start_header);
 private:
   // Execute the search, returning the last node if a plan was found.
   Node::Ptr plan();
@@ -126,20 +133,47 @@ private:
   // Turn a state in continuous space to something we can use in a grid
   NodeIndex indexOf(const State& state) const;
 
+  // Calculates the Dubins path between states. Returns true is succesful.
   bool dubins(const State & from, const State & to, DubinsPath & path) const;
 
   // Estimate the cost between states
   double heuristic(const State & from, const State & to) const;
 
+  // Generates potential next states from a given state.
   std::vector<Node::Ptr> generateNeighbors(Node::Ptr from) const;
 
+  // Returns a cost from 0.0 to 1.0 if a state not blocked and on
+  // the costmap. Returns -1.0 if blocked or off the map
   double getCost(const State& state);
 
   double step_size_; // meters
   double turn_radius_; // meters
   double yaw_step_; // yaw step size for search
-  double max_yaw_step_; // How much yaw changes per step_size then turning at dubins radius
-  std::vector<double> yaw_search_steps_; // Valid relative directions for searching
+
+  // Deltas relative to a state for a step in a given direction
+  struct SearchStep
+  {
+    SearchStep(double dyaw, double step_size):delta_yaw(dyaw)
+    {
+      if(delta_yaw != 0.0)
+      {
+        double radius_of_curvature = step_size/delta_yaw;
+        dx = std::abs(radius_of_curvature*sin(delta_yaw));
+        dy = std::copysign(radius_of_curvature*(1.0-cos(delta_yaw)), delta_yaw);
+      }
+      else
+      {
+        dx = step_size;
+        dy = 0.0;
+      }
+    }
+
+    double delta_yaw;
+    double dx;
+    double dy;
+  };
+
+  std::vector<SearchStep> search_steps_; // Valid relative directions for searching
 
   double speed_; // Speed at cost 0;
 

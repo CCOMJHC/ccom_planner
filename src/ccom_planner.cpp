@@ -49,42 +49,14 @@ bool Planner::running()
 
     if(planner_ && plan_.empty())
     {
-      auto potential_plan = planner_->getPlan();
-      if(potential_plan)
+      std::vector<geometry_msgs::PoseStamped> potential_plan;
+      if(planner_->getPlan(potential_plan, start_header_))
       {
-        std::vector<geometry_msgs::PoseStamped> potential_poses;
-        double last_speed = 0.0;
-        ros::Duration cumulative_time(0.0);
-        for(auto s: unwrap(potential_plan))
-        {
-          geometry_msgs::PoseStamped p;
-          p.header = start_header_;
-          p.pose.position.x = s.x;
-          p.pose.position.y = s.y;
-          tf2::Quaternion q;
-          q.setRPY(0.0, 0.0, s.yaw.value());
-          tf2::convert(q, p.pose.orientation);
-
-          if(!potential_poses.empty())
-          {
-            auto avg_speed = std::max(0.1,(last_speed + s.speed)/2.0);
-            auto dx = s.x - potential_poses.back().pose.position.x;
-            auto dy = s.y - potential_poses.back().pose.position.y;
-            cumulative_time += ros::Duration(sqrt(dx*dx+dy*dy)/avg_speed);
-            p.header.stamp = start_header_.stamp + cumulative_time;
-            last_speed = s.speed;
-          }
-          potential_poses.push_back(p);
-        }
-
-        publishPlan(potential_poses);
-
-        if(potential_plan->h == 0)
-        {
-          plan_ = potential_poses;
-          done = true;
-        }
+        plan_ = potential_plan;
+        planner_.reset();
       }
+      else
+        publishPlan(potential_plan);
 
       if(!plan_.empty())
       {
