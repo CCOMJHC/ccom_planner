@@ -101,6 +101,7 @@ bool Planner::running()
       auto goal = input_task_->message().poses[1];
 
       std::string map_frame = ros_costmap->getGlobalFrameID();
+      map_frame = context_->environment().getStaticGrids().begin()->second.getFrameId();
 
       if(start.header.frame_id != map_frame)
       {

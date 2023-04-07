@@ -5,10 +5,16 @@ namespace ccom_planner
 
 DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
 {
-  costmap_ = *context->costmap()->getCostmap();
+  //costmap_ = *context->costmap()->getCostmap();
+  static_grids_ = context->environment().getStaticGrids();
 
-  step_size_ = costmap_.getResolution();
+  //step_size_ = costmap_.getResolution();
 
+  for(auto& sg: static_grids_)
+    static_grids_by_resolution_[sg.second.getResolution()] = sg.first;
+
+  step_size_ = static_grids_by_resolution_.begin()->first;
+ 
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
 
   double max_yaw_step = step_size_/turn_radius_;
@@ -118,14 +124,17 @@ Node::Ptr DubinsAStar::plan()
       // A negative heuristic means an invalid state, so make sure
       // it's non negative. Also check that we haven't been here
       // already
-      if(n->h >= 0 && (ni == current_index || !visited_nodes_[ni]))
+      if(n->h >= 0 && (n->cummulative_distance < 20.0 || !visited_nodes_[ni]))
       {
         // A negative cost means a leathal or off the map state
         double cost = getCost(n->state);
+        if(cost <= 0.0)
+          cost = 0.01;
         if(cost >= 0.0)
         {
           // scale our speed using cost
-          auto speed = speed_*(1.0-cost*.9);
+          //auto speed = speed_*(1.0-cost*.9);
+          auto speed = cost;
           if(speed > 0)
           {
             n->state.speed = speed;
@@ -233,13 +242,22 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 
 double DubinsAStar::getCost(const State& state)
 {
-  unsigned int x,y;
-  if(costmap_.worldToMap(state.x, state.y, x, y))
+  grid_map::Position position(state.x, state.y);
+  for(auto sg_res: static_grids_by_resolution_)
   {
-    auto cost = costmap_.getCost(x,y);
-    if (cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
-      return cost/double(costmap_2d::INSCRIBED_INFLATED_OBSTACLE-1);
+    grid_map::Index index;
+    if(static_grids_[sg_res.second].getIndex(position, index))
+    {
+      return static_grids_[sg_res.second].at("speed", index);
+    }
   }
+  // unsigned int x,y;
+  // if(costmap_.worldToMap(state.x, state.y, x, y))
+  // {
+  //   auto cost = costmap_.getCost(x,y);
+  //   if (cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
+  //     return cost/double(costmap_2d::INSCRIBED_INFLATED_OBSTACLE-1);
+  // }
   return -1.0;
 }
 

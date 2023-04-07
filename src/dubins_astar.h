@@ -177,7 +177,9 @@ private:
 
   double speed_; // Speed at cost 0;
 
-  costmap_2d::Costmap2D costmap_;
+  //costmap_2d::Costmap2D costmap_;
+  std::map<std::string, grid_map::GridMap> static_grids_;
+  std::map<double, std::string> static_grids_by_resolution_;
 
   // A* nodes that can still be expanded
   std::priority_queue<Node::Ptr, std::vector<Node::Ptr>, NodePointerCompare> open_set_;
