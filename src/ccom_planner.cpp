@@ -137,7 +137,12 @@ bool Planner::running()
 
       goal_state.x = goal.pose.position.x;
       goal_state.y = goal.pose.position.y;
-      goal_state.yaw = tf2::getYaw(goal.pose.orientation);
+      tf2::Quaternion q;
+      tf2::fromMsg(goal.pose.orientation, q);
+      if(q.length2() < 0.5)
+        goal_state.yaw = std::nan("");
+      else
+        goal_state.yaw = tf2::getYaw(goal.pose.orientation);
 
       ROS_INFO_STREAM("Launching planner from " << start_state << " to " << goal_state);
 

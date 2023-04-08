@@ -13,6 +13,9 @@ DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context:
   for(auto& sg: static_grids_)
     static_grids_by_resolution_[sg.second.getResolution()] = sg.first;
 
+  for(auto sgbr: static_grids_by_resolution_)
+    ROS_INFO_STREAM("res: " << sgbr.first << " grid: " << sgbr.second);
+
   step_size_ = static_grids_by_resolution_.begin()->first;
  
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
@@ -34,12 +37,26 @@ DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context:
 
   speed_ = context->getRobotCapabilities().default_velocity.linear.x;
 
-  goal_ = goal;
-  goal_index_ = indexOf(goal);
+  start_ = start;
+  if(isnan(goal.yaw))
+  {
+    State gs = goal;
+    for(double y = 0.0; y < 2*M_PI; y += yaw_step)
+    {
+      gs.yaw = y;
+      goals_.push_back(gs);
+      goal_indexes_.push_back(indexOf(gs));
+    }
+  }
+  else
+  {
+    goals_.push_back(goal);
+    goal_indexes_.push_back(indexOf(goal));
+  }
 
   auto start_index = indexOf(start);
 
-  if (start_index != goal_index_)
+  if (!isGoal(start_index))
   {
     // Don't check the start position against the costmap in case we are 
     // at a dock or other valid situation where we'd fail a costmap check
@@ -59,6 +76,14 @@ DubinsAStar::~DubinsAStar()
   }
   if(plan_ready_.valid())
     plan_ready_.wait();
+}
+
+bool DubinsAStar::isGoal(const NodeIndex& i) const
+{
+  for(auto gi: goal_indexes_)
+    if(gi == i)
+      return true;
+  return false;
 }
 
 bool DubinsAStar::getPlan(std::vector<geometry_msgs::PoseStamped> &plan, const std_msgs::Header& start_header)
@@ -109,6 +134,8 @@ Node::Ptr DubinsAStar::plan()
     auto current = open_set_.top();
     open_set_.pop();
 
+    //ROS_INFO_STREAM(*current);
+
     NodeIndex current_index = indexOf(current->state);
 
     auto neighbors = generateNeighbors(current);
@@ -116,7 +143,7 @@ Node::Ptr DubinsAStar::plan()
     for(auto n: neighbors)
     {
       auto ni = indexOf(n->state);
-      if(ni == goal_index_)
+      if(isGoal(ni))
       {
         n->h = 0.0;
         return n;
@@ -124,12 +151,15 @@ Node::Ptr DubinsAStar::plan()
       // A negative heuristic means an invalid state, so make sure
       // it's non negative. Also check that we haven't been here
       // already
-      if(n->h >= 0 && (n->cummulative_distance < 20.0 || !visited_nodes_[ni]))
+      if(n->h >= 0 && (ni.samePosition(current_index) || !visited_nodes_[ni]))
       {
         // A negative cost means a leathal or off the map state
         double cost = getCost(n->state);
-        if(cost <= 0.0)
-          cost = 0.01;
+        if(n->cummulative_distance < 5*turn_radius_)
+          if(cost < 0.0)
+            cost = 0.001;
+          else if( cost < 0.01)
+            cost = 0.01;
         if(cost >= 0.0)
         {
           // scale our speed using cost
@@ -197,19 +227,22 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
   // First, let's sample from a direct Dubins path if we can.
   DubinsPath path;
 
-  bool success = dubins(from->state, goal_, path);
-
-  if(success)
+  for(auto goal: goals_)
   {
-    double q[3];
-    double distance = step_size_;
-    if(dubins_path_sample(&path, distance, q) == 0)
+    bool success = dubins(from->state, goal, path);
+
+    if(success)
     {
-      State state;
-      state.x = q[0];
-      state.y = q[1];
-      state.yaw = q[2];
-      states.push_back(state);
+      double q[3];
+      double distance = step_size_;
+      if(dubins_path_sample(&path, distance, q) == 0)
+      {
+        State state;
+        state.x = q[0];
+        state.y = q[1];
+        state.yaw = q[2];
+        states.push_back(state);
+      }
     }
   }
 
@@ -231,10 +264,15 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 
   for(auto state: states)
   {
-    double h = heuristic(state, goal_);
-    if(h < 0)
-      ROS_WARN_STREAM("Unable to calculate heuristic for neighbour from " << state << " to goal " << goal_);
-    else
+    double h = -1;
+    for(auto goal: goals_)
+    {
+      double gh = heuristic(state, goal);
+      if(gh >= 0.0)
+        if(h < 0.0 || gh < h)
+          h = gh;
+    }
+    if(h >= 0)
       ret.push_back(std::make_shared<Node>(state, h, from->cummulative_distance+step_size_, from->g, from));
   }
   return ret;
@@ -248,16 +286,12 @@ double DubinsAStar::getCost(const State& state)
     grid_map::Index index;
     if(static_grids_[sg_res.second].getIndex(position, index))
     {
-      return static_grids_[sg_res.second].at("speed", index);
+      float ret = static_grids_[sg_res.second].at("speed", index);
+      for(grid_map::CircleIterator i(static_grids_[sg_res.second], position, turn_radius_); !i.isPastEnd(); ++i)
+        ret = std::min(ret, static_grids_[sg_res.second].at("speed", *i));
+      return ret;
     }
   }
-  // unsigned int x,y;
-  // if(costmap_.worldToMap(state.x, state.y, x, y))
-  // {
-  //   auto cost = costmap_.getCost(x,y);
-  //   if (cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE)
-  //     return cost/double(costmap_2d::INSCRIBED_INFLATED_OBSTACLE-1);
-  // }
   return -1.0;
 }
 

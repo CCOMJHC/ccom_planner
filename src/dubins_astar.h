@@ -146,6 +146,9 @@ private:
   // the costmap. Returns -1.0 if blocked or off the map
   double getCost(const State& state);
 
+  // Returns true if i is one of the goal indecies
+  bool isGoal(const NodeIndex& i) const;
+
   double step_size_; // meters
   double turn_radius_; // meters
   double yaw_step_; // yaw step size for search
@@ -188,8 +191,9 @@ private:
   // Visited node, to avoid looping and retracing paths
   std::map<NodeIndex, bool> visited_nodes_;
 
-  State goal_;
-  NodeIndex goal_index_;
+  State start_;
+  std::vector<State> goals_;
+  std::vector<NodeIndex> goal_indexes_;
 
   std::future<Node::Ptr> plan_ready_;
   Node::Ptr plan_;
