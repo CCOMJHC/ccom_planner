@@ -5,18 +5,9 @@ namespace ccom_planner
 
 DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
 {
-  //costmap_ = *context->costmap()->getCostmap();
-  static_grids_ = context->environment().getStaticGrids();
+  environment_snapshot_ = context->environment().snapshot();
 
-  //step_size_ = costmap_.getResolution();
-
-  for(auto& sg: static_grids_)
-    static_grids_by_resolution_[sg.second.getResolution()] = sg.first;
-
-  for(auto sgbr: static_grids_by_resolution_)
-    ROS_INFO_STREAM("res: " << sgbr.first << " grid: " << sgbr.second);
-
-  step_size_ = static_grids_by_resolution_.begin()->first;
+  step_size_ = environment_snapshot_.static_grids_by_resolution.begin()->first;
  
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
 
@@ -281,16 +272,18 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 double DubinsAStar::getCost(const State& state)
 {
   grid_map::Position position(state.x, state.y);
-  for(auto sg_res: static_grids_by_resolution_)
-  {
-    grid_map::Index index;
-    if(static_grids_[sg_res.second].getIndex(position, index))
+  for(auto gv: environment_snapshot_.static_grids_by_resolution)
+    for(auto grid_label: gv.second)
     {
-      float ret = static_grids_[sg_res.second].at("speed", index);
-      for(grid_map::CircleIterator i(static_grids_[sg_res.second], position, turn_radius_); !i.isPastEnd(); ++i)
-        ret = std::min(ret, static_grids_[sg_res.second].at("speed", *i));
-      return ret;
-    }
+      grid_map::Index index;
+      grid_map::GridMap& grid = environment_snapshot_.static_grids[grid_label];
+      if(grid.getIndex(position, index))
+      {
+        float ret = grid.at("speed", index);
+        for(grid_map::CircleIterator i(grid, position, turn_radius_); !i.isPastEnd(); ++i)
+          ret = std::min(ret, grid.at("speed", *i));
+        return ret;
+      }
   }
   return -1.0;
 }

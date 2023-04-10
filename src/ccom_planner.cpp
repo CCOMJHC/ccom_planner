@@ -60,7 +60,6 @@ bool Planner::running()
 
       if(!plan_.empty())
       {
-        ROS_DEBUG_STREAM("Start: " << plan_.front().header.stamp << " end: " << plan_.back().header.stamp);
         for(auto t: input_task_->children().tasks())
           if(t->message().type == output_task_type_ && t->message().id == input_task_->getChildID(output_task_name_))
           {
@@ -101,7 +100,7 @@ bool Planner::running()
       auto goal = input_task_->message().poses[1];
 
       std::string map_frame = ros_costmap->getGlobalFrameID();
-      map_frame = context_->environment().getStaticGrids().begin()->second.getFrameId();
+      map_frame = context_->environment().mapFrame();
 
       if(start.header.frame_id != map_frame)
       {
@@ -174,6 +173,31 @@ void Planner::publishPlan(const std::vector<geometry_msgs::PoseStamped> &plan)
     path.poses = plan;
   }
   plan_publisher_.publish(path);
+  if(input_task_)
+  {
+    auto& ma = input_task_->markerArray();
+    ma.markers.clear();
+    if(!plan.empty())
+    {
+      visualization_msgs::Marker marker;
+      marker.header.frame_id = plan.front().header.frame_id;
+      marker.header.stamp = plan.front().header.stamp;
+      marker.ns = input_task_->message().id;
+      marker.id = 0;
+      marker.action = visualization_msgs::Marker::ADD;
+      marker.type = visualization_msgs::Marker::LINE_STRIP;
+      marker.pose.orientation.w = 1.0;
+      marker.color.r = .5;
+      marker.color.g = .25;
+      marker.color.b = .4;
+      marker.color.a = .5;
+      marker.scale.x = 1.0;
+      marker.lifetime = ros::Duration(5.0);
+      for(auto p: plan)
+        marker.points.push_back(p.pose.position);
+      ma.markers.push_back(marker);
+    }
+  }
 }
 
 void Planner::publishPlan()

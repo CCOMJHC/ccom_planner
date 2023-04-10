@@ -6,6 +6,7 @@
 #include <map>
 #include <future>
 #include <project11_navigation/context.h>
+#include <project11_navigation/environment.h>
 #include "project11/utils.h"
 
 extern "C" {
@@ -31,7 +32,7 @@ struct State
   double speed;
 };
 
-// Combines a state with a pointer to the precious node
+// Combines a state with a pointer to the previous node
 // and cost components (g, h)
 struct Node
 {
@@ -180,9 +181,7 @@ private:
 
   double speed_; // Speed at cost 0;
 
-  //costmap_2d::Costmap2D costmap_;
-  std::map<std::string, grid_map::GridMap> static_grids_;
-  std::map<double, std::string> static_grids_by_resolution_;
+  project11_navigation::Environment::Snapshot environment_snapshot_;
 
   // A* nodes that can still be expanded
   std::priority_queue<Node::Ptr, std::vector<Node::Ptr>, NodePointerCompare> open_set_;
