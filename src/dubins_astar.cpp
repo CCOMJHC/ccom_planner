@@ -146,15 +146,14 @@ Node::Ptr DubinsAStar::plan()
       {
         // A negative cost means a leathal or off the map state
         double cost = getCost(n->state);
-        if(n->cummulative_distance < 4*turn_radius_)
+        // allow leeway if starting close to an obstacle, such as a dock
+        if(n->cummulative_distance < turn_radius_) 
           if(cost < 0.0)
             cost = 0.001;
           else if( cost < 0.01)
             cost = 0.01;
         if(cost >= 0.0)
         {
-          // scale our speed using cost
-          //auto speed = speed_*(1.0-cost*.9);
           auto speed = cost;
           if(speed > 0)
           {
