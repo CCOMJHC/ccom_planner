@@ -1,9 +1,10 @@
 #include "dubins_astar.h"
+#include <tf2/utils.h>
 
 namespace ccom_planner
 {
 
-DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
+DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
 {
   environment_snapshot_ = context->environment().snapshot();
 
@@ -29,12 +30,19 @@ DubinsAStar::DubinsAStar(State start, State goal, project11_navigation::Context:
   speed_ = context->getRobotCapabilities().default_velocity.linear.x;
 
   start_ = start;
-  if(isnan(goal.yaw))
+
+  // If goal orientation is not valid, assume it means it is not important
+  // so add all discretized orientations as goals.
+  tf2::Quaternion q;
+  tf2::fromMsg(goal.pose.orientation, q);
+  if(q.length2() < 0.5)
   {
-    State gs = goal;
+    auto gs = goal;
     for(double y = 0.0; y < 2*M_PI; y += yaw_step)
     {
-      gs.yaw = y;
+      tf2::Quaternion q;
+      q.setRPY(0, 0, y);
+      gs.pose.orientation = tf2::toMsg(q);
       goals_.push_back(gs);
       goal_indexes_.push_back(indexOf(gs));
     }
@@ -112,7 +120,13 @@ bool DubinsAStar::getPlan(std::vector<geometry_msgs::PoseStamped> &plan, const s
 
 Node::Ptr DubinsAStar::plan()
 {
-  while(!open_set_.empty())
+  bool done;
+  {
+    std::lock_guard<std::mutex> lock(open_set_mutex_);
+    done = open_set_.empty();
+  }
+
+  while(!done)
   {
     {
       // Check if we need to quit before we're done
@@ -121,9 +135,12 @@ Node::Ptr DubinsAStar::plan()
         break;
     }
 
-    std::lock_guard<std::mutex> lock(open_set_mutex_);
-    auto current = open_set_.top();
-    open_set_.pop();
+    Node::Ptr current;
+    {
+      std::lock_guard<std::mutex> lock(open_set_mutex_);
+      current = open_set_.top();
+      open_set_.pop();
+    }
 
     //ROS_INFO_STREAM(*current);
 
@@ -157,10 +174,11 @@ Node::Ptr DubinsAStar::plan()
           auto speed = cost;
           if(speed > 0)
           {
-            n->state.speed = speed;
+            n->state.twist.linear.x = speed;
             // update the total time so far using the speed to calculate
             // how long from previous state to this one
             n->g += (n->cummulative_distance-current->cummulative_distance)/speed;
+            std::lock_guard<std::mutex> lock(open_set_mutex_);
             open_set_.push(n);
           }
         }
@@ -168,38 +186,41 @@ Node::Ptr DubinsAStar::plan()
         visited_nodes_[ni] = true;
       }
     }
+    std::lock_guard<std::mutex> lock(open_set_mutex_);
+    done = open_set_.empty();
   }
   // if we made it here, no plan was found
   return Node::Ptr();
 }
 
-NodeIndex DubinsAStar::indexOf(const State& state) const
+NodeIndex DubinsAStar::indexOf(const project11_nav_msgs::RobotState& state) const
 {
   NodeIndex ret;
-  ret.xi = state.x/step_size_;
-  ret.yi = state.y/step_size_;
-  ret.yawi = state.yaw.value()/yaw_step_;
+  ret.xi = state.pose.position.x/step_size_;
+  ret.yi = state.pose.position.y/step_size_;
+  auto yaw = tf2::getYaw(state.pose.orientation);
+  ret.yawi = yaw/yaw_step_;
   return ret;
 }
 
-bool DubinsAStar::dubins(const State & from, const State & to, DubinsPath & path) const
+bool DubinsAStar::dubins(const project11_nav_msgs::RobotState & from, const project11_nav_msgs::RobotState & to, DubinsPath & path) const
 {
   double start[3];
-  start[0] = from.x;
-  start[1] = from.y;
-  start[2] = from.yaw.value();
+  start[0] = from.pose.position.x;
+  start[1] = from.pose.position.y;
+  start[2] = tf2::getYaw(from.pose.orientation);
   
   double target[3];
-  target[0] = to.x;
-  target[1] = to.y;
-  target[2] = to.yaw.value();
+  target[0] = to.pose.position.x;
+  target[1] = to.pose.position.y;
+  target[2] = tf2::getYaw(to.pose.orientation);
 
   int dubins_ret = dubins_shortest_path(&path, start, target, turn_radius_);
   
   return dubins_ret == 0;
 }
 
-double DubinsAStar::heuristic(const State & from, const State & to) const
+double DubinsAStar::heuristic(const project11_nav_msgs::RobotState & from, const project11_nav_msgs::RobotState & to) const
 {
   DubinsPath path;
 
@@ -212,7 +233,7 @@ double DubinsAStar::heuristic(const State & from, const State & to) const
 
 std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 {
-  std::vector<State> states;
+  std::vector<project11_nav_msgs::RobotState> states;
 
   // First, let's sample from a direct Dubins path if we can.
   DubinsPath path;
@@ -227,26 +248,32 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
       double distance = step_size_;
       if(dubins_path_sample(&path, distance, q) == 0)
       {
-        State state;
-        state.x = q[0];
-        state.y = q[1];
-        state.yaw = q[2];
+        project11_nav_msgs::RobotState state;
+        state.pose.position.x = q[0];
+        state.pose.position.y = q[1];
+        tf2::Quaternion quat;
+        quat.setRPY(0,0,q[2]);
+        state.pose.orientation = tf2::toMsg(quat);
         states.push_back(state);
       }
     }
   }
 
-  auto cosyaw = cos(from->state.yaw);
-  auto sinyaw = sin(from->state.yaw);
+  auto yaw = tf2::getYaw(from->state.pose.orientation);
+
+  auto cosyaw = cos(yaw);
+  auto sinyaw = sin(yaw);
 
   // Now consider our standard directions
   for(auto step: search_steps_)
   {
-    State state;
-    state.yaw = from->state.yaw + step.delta_yaw;
+    project11_nav_msgs::RobotState state;
+    tf2::Quaternion quat;
+    quat.setRPY(0, 0, yaw+step.delta_yaw);
+    state.pose.orientation = tf2::toMsg(quat);
 
-    state.x = from->state.x + step.dx*cosyaw + step.dy*sinyaw;
-    state.y = from->state.y + step.dx*sinyaw + step.dy*cosyaw;
+    state.pose.position.x = from->state.pose.position.x + step.dx*cosyaw + step.dy*sinyaw;
+    state.pose.position.y = from->state.pose.position.y + step.dx*sinyaw + step.dy*cosyaw;
     states.push_back(state);
   }
 
@@ -268,9 +295,9 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
   return ret;
 }
 
-double DubinsAStar::getCost(const State& state)
+double DubinsAStar::getCost(const project11_nav_msgs::RobotState& state)
 {
-  grid_map::Position position(state.x, state.y);
+  grid_map::Position position(state.pose.position.x, state.pose.position.y);
   for(auto gv: environment_snapshot_.static_grids_by_resolution)
     for(auto grid_label: gv.second)
     {
@@ -283,7 +310,7 @@ double DubinsAStar::getCost(const State& state)
           ret = std::min(ret, grid.at("speed", *i));
         return ret;
       }
-  }
+    }
   return -1.0;
 }
 
@@ -291,7 +318,7 @@ void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, cons
 
 {
   // Reverse the order of the states
-  std::deque<State> states;
+  std::deque<project11_nav_msgs::RobotState> states;
   while(plan)
   {
     states.push_front(plan->state);
@@ -304,21 +331,17 @@ void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, cons
   {
     geometry_msgs::PoseStamped p;
     p.header = start_header;
-    p.pose.position.x = s.x;
-    p.pose.position.y = s.y;
-    tf2::Quaternion q;
-    q.setRPY(0.0, 0.0, s.yaw.value());
-    tf2::convert(q, p.pose.orientation);
+    p.pose = s.pose;
 
     // set the timestamp based on planned speeds
     if(!poses.empty())
     {
-      auto avg_speed = std::max(0.1,(last_speed + s.speed)/2.0);
-      auto dx = s.x - poses.back().pose.position.x;
-      auto dy = s.y - poses.back().pose.position.y;
+      auto avg_speed = std::max(0.1,(last_speed + s.twist.linear.x)/2.0);
+      auto dx = s.pose.position.x - poses.back().pose.position.x;
+      auto dy = s.pose.position.y - poses.back().pose.position.y;
       cumulative_time += ros::Duration(sqrt(dx*dx+dy*dy)/avg_speed);
       p.header.stamp = start_header.stamp + cumulative_time;
-      last_speed = s.speed;
+      last_speed = s.twist.linear.x;
     }
     poses.push_back(p);
   }
@@ -326,14 +349,14 @@ void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, cons
 
 }; // namespace ccom_planner
 
-std::ostream& operator<< (std::ostream& os, const ccom_planner::State& state)
-{
-  os << "x,y: " << state.x << "," << state.y << "\tyaw: " << project11::AngleDegreesPositive(state.yaw).value();
-  return os;
-}
+// std::ostream& operator<< (std::ostream& os, const ccom_planner::State& state)
+// {
+//   os << "x,y: " << state.x << "," << state.y << "\tyaw: " << project11::AngleDegreesPositive(state.yaw).value();
+//   return os;
+// }
 
-std::ostream& operator<< (std::ostream& os, const ccom_planner::Node& node)
-{
-  os << node.state << "\tf: " <<  node.f()  << "\tg: " << node.g << "\th: " << node.h << " distance: " << node.cummulative_distance;
-  return os;
-}
+// std::ostream& operator<< (std::ostream& os, const ccom_planner::Node& node)
+// {
+//   os << node.state << "\tf: " <<  node.f()  << "\tg: " << node.g << "\th: " << node.h << " distance: " << node.cummulative_distance;
+//   return os;
+// }

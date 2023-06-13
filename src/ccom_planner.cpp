@@ -2,7 +2,7 @@
 
 #include <nav_msgs/Path.h>
 #include <pluginlib/class_list_macros.h>
-
+#include <project11_nav_msgs/RobotState.h>
 #include <tf2/utils.h>
 
 PLUGINLIB_EXPORT_CLASS(ccom_planner::Planner, project11_navigation::TaskToTaskWorkflow);
@@ -21,7 +21,7 @@ void Planner::configure(std::string name, project11_navigation::Context::Ptr con
   plan_publisher_ = nh.advertise<nav_msgs::Path>("plan", 1, true);
 }
 
-void Planner::setGoal(const std::shared_ptr<project11_navigation::Task>& input)
+void Planner::setGoal(const project11_navigation::Task::Ptr& input)
 {
   input_task_ = input;
   task_update_time_ = ros::Time();
@@ -68,7 +68,7 @@ bool Planner::running()
           }
         if(!output_task_)
         {
-          output_task_ = input_task_->createChildTaskBefore(std::shared_ptr<project11_navigation::Task>(),output_task_type_);
+          output_task_ = input_task_->createChildTaskBefore(project11_navigation::Task::Ptr(),output_task_type_);
           input_task_->setChildID(output_task_, output_task_name_);
         }
         auto out_msg = output_task_->message();
@@ -88,19 +88,11 @@ bool Planner::running()
       double radius = caps.getTurnRadiusAtSpeed(speed_);
       if( radius <= 0.0)
         ROS_WARN_STREAM_THROTTLE(1.0, "Radius is not > zero: " << radius);
-      auto ros_costmap = context_->costmap();
-      if(!ros_costmap || !ros_costmap->getLayeredCostmap())
-      {
-        ROS_ERROR_STREAM("Costmap not found for Dubins planner");
-        return false;
-      }
-      auto* costmap = ros_costmap->getLayeredCostmap()->getCostmap();
 
       auto start = input_task_->message().poses[0]; 
       auto goal = input_task_->message().poses[1];
 
-      std::string map_frame = ros_costmap->getGlobalFrameID();
-      map_frame = context_->environment().mapFrame();
+      std::string map_frame = context_->environment().mapFrame();
 
       if(start.header.frame_id != map_frame)
       {
@@ -129,21 +121,11 @@ bool Planner::running()
         }
       }
 
-      State start_state, goal_state;
-      start_state.x = start.pose.position.x;
-      start_state.y = start.pose.position.y;
-      start_state.yaw = tf2::getYaw(start.pose.orientation);
+      project11_nav_msgs::RobotState start_state, goal_state;
+      start_state.pose = start.pose;
+      goal_state.pose = goal.pose;
 
-      goal_state.x = goal.pose.position.x;
-      goal_state.y = goal.pose.position.y;
-      tf2::Quaternion q;
-      tf2::fromMsg(goal.pose.orientation, q);
-      if(q.length2() < 0.5)
-        goal_state.yaw = std::nan("");
-      else
-        goal_state.yaw = tf2::getYaw(goal.pose.orientation);
-
-      ROS_INFO_STREAM("Launching planner from " << start_state << " to " << goal_state);
+      ROS_INFO_STREAM("Launching planner from " << start_state.pose.position.x << ", " << start_state.pose.position.y << " to " << goal_state.pose.position.x << ", " << goal_state.pose.position.y);
 
       start_header_ = start.header;
 
@@ -154,7 +136,7 @@ bool Planner::running()
   return !done;
 }
 
-bool Planner::getResult(std::shared_ptr<project11_navigation::Task>& output)
+bool Planner::getResult(project11_navigation::Task::Ptr& output)
 {
   if(output_task_)
   {
@@ -181,7 +163,7 @@ void Planner::publishPlan(const std::vector<geometry_msgs::PoseStamped> &plan)
     {
       visualization_msgs::Marker marker;
       marker.header.frame_id = plan.front().header.frame_id;
-      marker.header.stamp = plan.front().header.stamp;
+      marker.header.stamp = ros::Time::now();
       marker.ns = input_task_->message().id;
       marker.id = 0;
       marker.action = visualization_msgs::Marker::ADD;

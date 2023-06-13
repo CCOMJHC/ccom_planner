@@ -8,6 +8,7 @@
 #include <project11_navigation/context.h>
 #include <project11_navigation/environment.h>
 #include "project11/utils.h"
+#include "project11_nav_msgs/RobotState.h"
 
 extern "C" {
 #include "dubins_curves/dubins.h"
@@ -22,25 +23,25 @@ extern "C" {
 namespace ccom_planner
 {
 
-// A position, heading and speed in map space
-struct State
-{
-  double x;
-  double y;
-  // Yaw than knows how to stay in the 0-2pi range when doing arithmetic
-  project11::AngleRadiansPositive yaw;
-  double speed;
-};
+// // A position, heading and speed in map space
+// struct State
+// {
+//   double x;
+//   double y;
+//   // Yaw than knows how to stay in the 0-2pi range when doing arithmetic
+//   project11::AngleRadiansPositive yaw;
+//   double speed;
+// };
 
 // Combines a state with a pointer to the previous node
 // and cost components (g, h)
 struct Node
 {
-  Node(const State& s, double heuristic, double distance_so_far = 0.0, double cost_so_far = 0.0, std::shared_ptr<Node> from = std::shared_ptr<Node>()): state(s), cummulative_distance(distance_so_far), h(heuristic), g(cost_so_far), previous_node(from)
+  Node(const project11_nav_msgs::RobotState& s, double heuristic, double distance_so_far = 0.0, double cost_so_far = 0.0, std::shared_ptr<Node> from = std::shared_ptr<Node>()): state(s), cummulative_distance(distance_so_far), h(heuristic), g(cost_so_far), previous_node(from)
   {
   }
 
-  State state;
+  project11_nav_msgs::RobotState state;
   double cummulative_distance; // distance of path from start
   double g; // cost of path from start
   double h; // heuristic estimate of cost to goal
@@ -118,7 +119,7 @@ void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, cons
 class DubinsAStar
 {
 public:
-  DubinsAStar(State start, State goal, project11_navigation::Context::Ptr context, double yaw_step = M_PI/8.0);
+  DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context, double yaw_step = M_PI/8.0);
   ~DubinsAStar();
 
   // If planner is done, return true
@@ -132,20 +133,20 @@ private:
   Node::Ptr plan();
 
   // Turn a state in continuous space to something we can use in a grid
-  NodeIndex indexOf(const State& state) const;
+  NodeIndex indexOf(const project11_nav_msgs::RobotState& state) const;
 
   // Calculates the Dubins path between states. Returns true is succesful.
-  bool dubins(const State & from, const State & to, DubinsPath & path) const;
+  bool dubins(const project11_nav_msgs::RobotState & from, const project11_nav_msgs::RobotState & to, DubinsPath & path) const;
 
   // Estimate the cost between states
-  double heuristic(const State & from, const State & to) const;
+  double heuristic(const project11_nav_msgs::RobotState & from, const project11_nav_msgs::RobotState & to) const;
 
   // Generates potential next states from a given state.
   std::vector<Node::Ptr> generateNeighbors(Node::Ptr from) const;
 
   // Returns a cost from 0.0 to 1.0 if a state not blocked and on
   // the costmap. Returns -1.0 if blocked or off the map
-  double getCost(const State& state);
+  double getCost(const project11_nav_msgs::RobotState& state);
 
   // Returns true if i is one of the goal indecies
   bool isGoal(const NodeIndex& i) const;
@@ -190,8 +191,8 @@ private:
   // Visited node, to avoid looping and retracing paths
   std::map<NodeIndex, bool> visited_nodes_;
 
-  State start_;
-  std::vector<State> goals_;
+  project11_nav_msgs::RobotState start_;
+  std::vector<project11_nav_msgs::RobotState> goals_;
   std::vector<NodeIndex> goal_indexes_;
 
   std::future<Node::Ptr> plan_ready_;
@@ -203,7 +204,7 @@ private:
 
 }; // namespace ccom_planner
 
-std::ostream& operator<<(std::ostream&, const ccom_planner::State&);
-std::ostream& operator<<(std::ostream&, const ccom_planner::Node&);
+// std::ostream& operator<<(std::ostream&, const ccom_planner::State&);
+// std::ostream& operator<<(std::ostream&, const ccom_planner::Node&);
 
 #endif
