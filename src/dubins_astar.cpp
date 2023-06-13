@@ -310,6 +310,16 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
 double DubinsAStar::getCost(const project11_nav_msgs::RobotState& state)
 {
   grid_map::Position position(state.pose.position.x, state.pose.position.y);
+  float dynamic_weight = 1.0;
+  for(auto grid: environment_snapshot_.dynamic_grids)
+  {
+    grid_map::Index index;
+    if(grid.second.getIndex(position, index))
+    {
+      float intensity = grid.second.at("intensity", index);
+      dynamic_weight = 1.0-intensity;
+    }
+  }
   for(auto gv: environment_snapshot_.static_grids_by_resolution)
     for(auto grid_label: gv.second)
     {
@@ -320,7 +330,7 @@ double DubinsAStar::getCost(const project11_nav_msgs::RobotState& state)
         float ret = grid.at("speed", index);
         for(grid_map::CircleIterator i(grid, position, turn_radius_); !i.isPastEnd(); ++i)
           ret = std::min(ret, grid.at("speed", *i));
-        return ret;
+        return ret*dynamic_weight;
       }
     }
   return -1.0;
