@@ -126,6 +126,9 @@ Node::Ptr DubinsAStar::plan()
     done = open_set_.empty();
   }
 
+  // In case we start where the map says we can go.
+  bool free_from_starting_obstacle = false;
+
   while(!done)
   {
     {
@@ -148,6 +151,10 @@ Node::Ptr DubinsAStar::plan()
 
     auto neighbors = generateNeighbors(current);
 
+    // in case we are still stuck in a starting obstacle,
+    // are any of the neigbours no longer in an obstacle? 
+    bool free_from_obstacles = false;
+
     for(auto n: neighbors)
     {
       auto ni = indexOf(n->state);
@@ -163,8 +170,11 @@ Node::Ptr DubinsAStar::plan()
       {
         // A negative cost means a leathal or off the map state
         double cost = getCost(n->state);
+        if(cost > 0.0)
+          free_from_obstacles = true;
+
         // allow leeway if starting close to an obstacle, such as a dock
-        if(n->cummulative_distance < turn_radius_) 
+        if(!free_from_starting_obstacle) 
           if(cost < 0.0)
             cost = 0.001;
           else if( cost < 0.01)
@@ -186,6 +196,8 @@ Node::Ptr DubinsAStar::plan()
         visited_nodes_[ni] = true;
       }
     }
+    if (free_from_obstacles)
+      free_from_starting_obstacle = true;
     std::lock_guard<std::mutex> lock(open_set_mutex_);
     done = open_set_.empty();
   }
