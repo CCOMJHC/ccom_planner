@@ -317,6 +317,8 @@ double DubinsAStar::getCost(const project11_nav_msgs::RobotState& state)
     if(grid.second.getIndex(position, index))
     {
       float intensity = grid.second.at("intensity", index);
+      for(grid_map::CircleIterator i(grid.second, position, turn_radius_); !i.isPastEnd(); ++i)
+        intensity = std::max(intensity, grid.second.at("intensity", *i));
       dynamic_weight = 1.0-intensity;
     }
   }
