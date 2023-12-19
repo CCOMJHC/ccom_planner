@@ -76,10 +76,10 @@ struct NodePointerCompare
   }
 };
 
-// used to descritize the nodes
+// used to discretize the nodes
 struct NodeIndex
 {
-  // x and y indecies in units of step size
+  // x and y indicies in units of step size
   int xi;
   int yi;
 
@@ -119,7 +119,7 @@ void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, cons
 class DubinsAStar
 {
 public:
-  DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context, double yaw_step = M_PI/8.0);
+  DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context);
   ~DubinsAStar();
 
   // If planner is done, return true
@@ -146,7 +146,7 @@ private:
 
   // Returns a cost from 0.0 to 1.0 if a state not blocked and on
   // the costmap. Returns -1.0 if blocked or off the map
-  double getCost(const project11_nav_msgs::RobotState& state);
+  double getCost(const project11_nav_msgs::RobotState& to_state, const project11_nav_msgs::RobotState& from_state);
 
   // Returns true if i is one of the goal indecies
   bool isGoal(const NodeIndex& i) const;

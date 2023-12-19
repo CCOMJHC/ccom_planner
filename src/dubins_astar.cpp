@@ -4,15 +4,20 @@
 namespace ccom_planner
 {
 
-DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context, double yaw_step): yaw_step_(yaw_step)
+DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msgs::RobotState goal, project11_navigation::Context::Ptr context)
 {
   environment_snapshot_ = context->environment().snapshot();
 
-  step_size_ = environment_snapshot_.static_grids_by_resolution.begin()->first;
+  //step_size_ = environment_snapshot_.static_grids_by_resolution.begin()->first;
  
   turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
 
-  double max_yaw_step = step_size_/turn_radius_;
+  step_size_ = turn_radius_/2.0;
+
+  double max_yaw_step = 0.5*step_size_/turn_radius_;
+
+  yaw_step_ = max_yaw_step;
+
 
   search_steps_.push_back(SearchStep(0.0, step_size_));
   for(double yaw = yaw_step_; yaw < M_PI; yaw += yaw_step_)
@@ -27,6 +32,9 @@ DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msg
     search_steps_.push_back(SearchStep(-yaw, step_size_));
   }
 
+  ROS_DEBUG_STREAM("Step size:" << step_size_ << " turn radius: " << turn_radius_ << " max yaw step: " << max_yaw_step << " search step count: " << search_steps_.size());
+
+
   speed_ = context->getRobotCapabilities().default_velocity.linear.x;
 
   start_ = start;
@@ -38,7 +46,7 @@ DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msg
   if(q.length2() < 0.5)
   {
     auto gs = goal;
-    for(double y = 0.0; y < 2*M_PI; y += yaw_step)
+    for(double y = 0.0; y < 2*M_PI; y += yaw_step_)
     {
       tf2::Quaternion q;
       q.setRPY(0, 0, y);
@@ -168,8 +176,8 @@ Node::Ptr DubinsAStar::plan()
       // already
       if(n->h >= 0 && (ni.samePosition(current_index) || !visited_nodes_[ni]))
       {
-        // A negative cost means a leathal or off the map state
-        double cost = getCost(n->state);
+        // A negative cost means a lethal or off the map state
+        double cost = getCost(n->state, current->state);
         if(cost > 0.0)
           free_from_obstacles = true;
 
@@ -307,35 +315,9 @@ std::vector<Node::Ptr> DubinsAStar::generateNeighbors(Node::Ptr from) const
   return ret;
 }
 
-double DubinsAStar::getCost(const project11_nav_msgs::RobotState& state)
+double DubinsAStar::getCost(const project11_nav_msgs::RobotState& to_state, const project11_nav_msgs::RobotState& from_state)
 {
-  grid_map::Position position(state.pose.position.x, state.pose.position.y);
-  float dynamic_weight = 1.0;
-  for(auto grid: environment_snapshot_.dynamic_grids)
-  {
-    grid_map::Index index;
-    if(grid.second.getIndex(position, index))
-    {
-      float intensity = grid.second.at("intensity", index);
-      for(grid_map::CircleIterator i(grid.second, position, turn_radius_); !i.isPastEnd(); ++i)
-        intensity = std::max(intensity, grid.second.at("intensity", *i));
-      dynamic_weight = 1.0-intensity;
-    }
-  }
-  for(auto gv: environment_snapshot_.static_grids_by_resolution)
-    for(auto grid_label: gv.second)
-    {
-      grid_map::Index index;
-      grid_map::GridMap& grid = environment_snapshot_.static_grids[grid_label];
-      if(grid.getIndex(position, index))
-      {
-        float ret = grid.at("speed", index);
-        for(grid_map::CircleIterator i(grid, position, turn_radius_); !i.isPastEnd(); ++i)
-          ret = std::min(ret, grid.at("speed", *i));
-        return ret*dynamic_weight;
-      }
-    }
-  return -1.0;
+  return environment_snapshot_.getCost(to_state, from_state, turn_radius_);
 }
 
 void unwrap(Node::Ptr plan, std::vector<geometry_msgs::PoseStamped> &poses, const std_msgs::Header& start_header)
