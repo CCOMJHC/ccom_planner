@@ -1,5 +1,6 @@
-#include "dubins_astar.h"
+#include <ccom_planner/dubins_astar.h>
 #include <tf2/utils.h>
+#include <project11_navigation/robot_capabilities.h>
 
 namespace ccom_planner
 {
@@ -10,7 +11,9 @@ DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msg
 
   //step_size_ = environment_snapshot_.static_grids_by_resolution.begin()->first;
  
-  turn_radius_ = context->getRobotCapabilities().getTurnRadiusAtSpeed(context->getRobotCapabilities().default_velocity.linear.x);
+  ros::NodeHandle nh("~");
+  project11_navigation::RobotCapabilities caps(nh);
+  turn_radius_ = caps.getTurnRadiusAtSpeed(caps.default_velocity.linear.x);
 
   step_size_ = turn_radius_/2.0;
 
@@ -35,7 +38,7 @@ DubinsAStar::DubinsAStar(project11_nav_msgs::RobotState start, project11_nav_msg
   ROS_DEBUG_STREAM("Step size:" << step_size_ << " turn radius: " << turn_radius_ << " max yaw step: " << max_yaw_step << " search step count: " << search_steps_.size());
 
 
-  speed_ = context->getRobotCapabilities().default_velocity.linear.x;
+  speed_ = caps.default_velocity.linear.x;
 
   start_ = start;
 

@@ -12,16 +12,16 @@ class Planner: public project11_navigation::TaskToTaskWorkflow
 {
 public:
   void configure(std::string name, project11_navigation::Context::Ptr context) override;
-  void setGoal(const project11_navigation::Task::Ptr& input) override;
+  void setGoal(const project11_navigation::TaskPtr& input) override;
   bool running() override;
-  bool getResult(project11_navigation::Task::Ptr& output) override;
+  bool getResult(project11_navigation::TaskPtr& output) override;
 private:
   void publishPlan(const std::vector<geometry_msgs::PoseStamped> &plan);
   void publishPlan();
 
   project11_navigation::Context::Ptr context_;
-  project11_navigation::Task::Ptr input_task_ = nullptr;
-  project11_navigation::Task::Ptr output_task_ = nullptr;
+  project11_navigation::TaskPtr input_task_ = nullptr;
+  project11_navigation::TaskPtr output_task_ = nullptr;
 
   ros::Time task_update_time_;
 

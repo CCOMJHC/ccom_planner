@@ -4,6 +4,7 @@
 #include <pluginlib/class_list_macros.h>
 #include <project11_nav_msgs/RobotState.h>
 #include <tf2/utils.h>
+#include <project11_navigation/robot_capabilities.h>
 
 PLUGINLIB_EXPORT_CLASS(ccom_planner::Planner, project11_navigation::TaskToTaskWorkflow);
 
@@ -21,7 +22,7 @@ void Planner::configure(std::string name, project11_navigation::Context::Ptr con
   plan_publisher_ = nh.advertise<nav_msgs::Path>("plan", 1, true);
 }
 
-void Planner::setGoal(const project11_navigation::Task::Ptr& input)
+void Planner::setGoal(const project11_navigation::TaskPtr& input)
 {
   input_task_ = input;
   task_update_time_ = ros::Time();
@@ -68,7 +69,7 @@ bool Planner::running()
           }
         if(!output_task_)
         {
-          output_task_ = input_task_->createChildTaskBefore(project11_navigation::Task::Ptr(),output_task_type_);
+          output_task_ = input_task_->createChildTaskBefore(project11_navigation::TaskPtr(),output_task_type_);
           input_task_->setChildID(output_task_, output_task_name_);
         }
         auto out_msg = output_task_->message();
@@ -82,7 +83,8 @@ bool Planner::running()
 
     if(plan_.empty() && !planner_)
     {
-      auto caps = context_->getRobotCapabilities();
+      ros::NodeHandle nh("~");
+      project11_navigation::RobotCapabilities caps(nh);
 
       speed_ = caps.default_velocity.linear.x;
       double radius = caps.getTurnRadiusAtSpeed(speed_);
@@ -98,7 +100,7 @@ bool Planner::running()
       {
         try
         {
-          context_->tfBuffer().transform(start, start, map_frame);
+          context_->tfBuffer()->transform(start, start, map_frame);
           start.header.frame_id = map_frame;
         }
         catch(const std::exception& e)
@@ -111,7 +113,7 @@ bool Planner::running()
       {
         try
         {
-          context_->tfBuffer().transform(goal, goal, map_frame);
+          context_->tfBuffer()->transform(goal, goal, map_frame);
           goal.header.frame_id = map_frame;
         }
         catch(const std::exception& e)
@@ -136,7 +138,7 @@ bool Planner::running()
   return !done;
 }
 
-bool Planner::getResult(project11_navigation::Task::Ptr& output)
+bool Planner::getResult(project11_navigation::TaskPtr& output)
 {
   if(output_task_)
   {
@@ -157,8 +159,8 @@ void Planner::publishPlan(const std::vector<geometry_msgs::PoseStamped> &plan)
   plan_publisher_.publish(path);
   if(input_task_)
   {
-    auto& ma = input_task_->markerArray();
-    ma.markers.clear();
+    //auto& ma = input_task_->markerArray();
+    //ma.markers.clear();
     if(!plan.empty())
     {
       visualization_msgs::Marker marker;
@@ -177,7 +179,7 @@ void Planner::publishPlan(const std::vector<geometry_msgs::PoseStamped> &plan)
       marker.lifetime = ros::Duration(5.0);
       for(auto p: plan)
         marker.points.push_back(p.pose.position);
-      ma.markers.push_back(marker);
+      //ma.markers.push_back(marker);
     }
   }
 }

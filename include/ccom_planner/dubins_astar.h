@@ -23,16 +23,6 @@ extern "C" {
 namespace ccom_planner
 {
 
-// // A position, heading and speed in map space
-// struct State
-// {
-//   double x;
-//   double y;
-//   // Yaw than knows how to stay in the 0-2pi range when doing arithmetic
-//   project11::AngleRadiansPositive yaw;
-//   double speed;
-// };
-
 // Combines a state with a pointer to the previous node
 // and cost components (g, h)
 struct Node
