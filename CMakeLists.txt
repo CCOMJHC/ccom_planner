@@ -31,8 +31,9 @@ set(PLUGIN_SOURCES
 add_library(ccom_planner_bt_plugin SHARED ${PLUGIN_SOURCES})
 target_link_libraries(ccom_planner_bt_plugin PRIVATE ${BTCPP_LIBRARY}
     ${catkin_LIBRARIES}
-    project11_navigation
+    #project11_navigation
 )
+
 target_compile_definitions(ccom_planner_bt_plugin PRIVATE  BT_PLUGIN_EXPORT )
 
 install(TARGETS ccom_planner_bt_plugin
